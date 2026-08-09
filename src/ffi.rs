@@ -307,3 +307,123 @@ pub extern "C" fn rugst_free_search_results(
         drop(results_vec);
     }
 }
+
+#[repr(C)]
+pub struct RugstListItem {
+    pub id: i64,
+    pub text: *mut c_char,
+    pub created_at: i64,
+}
+
+#[repr(C)]
+pub struct RugstListResults {
+    pub items: *mut RugstListItem,
+    pub len: usize,
+    pub capacity: usize,
+}
+
+fn empty_list_results() -> RugstListResults {
+    RugstListResults { items: std::ptr::null_mut(), len: 0, capacity: 0 }
+}
+
+/// role を指定してレコードを一覧取得する(事実管理画面用)。
+#[unsafe(no_mangle)]
+pub extern "C" fn rugst_list(
+    handle: *mut RugstHandle,
+    channel_id: *const c_char,
+    role: *const c_char,
+) -> RugstListResults {
+    if handle.is_null() || channel_id.is_null() || role.is_null() {
+        return empty_list_results();
+    }
+
+    let result = catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        let channel_id = match cstr_to_str(channel_id) {
+            Some(s) => s,
+            None => return empty_list_results(),
+        };
+        let role = match cstr_to_str(role) {
+            Some(s) => s,
+            None => return empty_list_results(),
+        };
+
+        let handle_ref = &*handle;
+        let rows = match handle_ref.inner.list_by_role(channel_id, role) {
+            Ok(rows) => rows,
+            Err(_) => return empty_list_results(),
+        };
+
+        let mut items = Vec::with_capacity(rows.len());
+        for (id, content, created_at) in rows {
+            let text = match std::ffi::CString::new(content) {
+                Ok(t) => t.into_raw(),
+                Err(_) => continue,
+            };
+            items.push(RugstListItem { id, text, created_at });
+        }
+
+        let len = items.len();
+        items.shrink_to_fit();
+        let capacity = items.capacity();
+        let ptr = items.as_mut_ptr();
+        std::mem::forget(items);
+
+        RugstListResults { items: ptr, len, capacity }
+    }));
+
+    result.unwrap_or_else(|_| empty_list_results())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rugst_free_list_results(results: RugstListResults) {
+    if results.items.is_null() {
+        return;
+    }
+    unsafe {
+        let items_vec = Vec::from_raw_parts(results.items, results.len, results.capacity);
+        for item in &items_vec {
+            if !item.text.is_null() {
+                drop(std::ffi::CString::from_raw(item.text));
+            }
+        }
+        drop(items_vec);
+    }
+}
+
+/// idを指定してレコードを削除する。
+#[unsafe(no_mangle)]
+pub extern "C" fn rugst_delete(handle: *mut RugstHandle, id: i64) -> RugstError {
+    if handle.is_null() {
+        return RugstError::NullPointer;
+    }
+    let handle_ref = unsafe { &*handle };
+    match handle_ref.inner.delete(id) {
+        Ok(_) => RugstError::Ok,
+        Err(_) => RugstError::InternalError,
+    }
+}
+
+/// idを指定して本文を更新する(embeddingも再計算)。
+#[unsafe(no_mangle)]
+pub extern "C" fn rugst_update(
+    handle: *mut RugstHandle,
+    id: i64,
+    content: *const c_char,
+) -> RugstError {
+    if handle.is_null() || content.is_null() {
+        return RugstError::NullPointer;
+    }
+
+    let content = unsafe {
+        match CStr::from_ptr(content).to_str() {
+            Ok(s) => s,
+            Err(_) => return RugstError::InvalidUtf8,
+        }
+    };
+
+    let handle_ref = unsafe { &*handle };
+    match handle_ref.inner.update(id, content) {
+        Ok(_) => RugstError::Ok,
+        Err(_) => RugstError::InternalError,
+    }
+}

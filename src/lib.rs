@@ -89,4 +89,22 @@ impl Rugst {
             options,
         ))
     }
+    /// 指定チャンネル内の、指定roleのレコードを一覧取得する(事実管理用)。
+    pub fn list_by_role(&self, channel_id: &str, role: &str) -> anyhow::Result<Vec<(i64, String, i64)>> {
+        self.memory.list_by_role(channel_id, role)
+    }
+
+    /// idを指定してレコードを削除する。
+    pub fn delete(&self, id: i64) -> anyhow::Result<bool> {
+        self.memory.delete_by_id(id)
+    }
+
+    /// idを指定して本文を更新する(embeddingも再計算する)。
+    pub fn update(&self, id: i64, content: &str) -> anyhow::Result<bool> {
+        let embedding = {
+            let mut model = self.embedding.lock().unwrap_or_else(|e| e.into_inner());
+            model.embed(content)?
+        };
+        self.memory.update_content_by_id(id, content, &embedding)
+    }
 }
