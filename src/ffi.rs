@@ -1,7 +1,6 @@
 ﻿use crate::Rugst;
 use std::ffi::{c_char, CStr};
 use std::panic::catch_unwind;
-use std::sync::Mutex;
 
 impl From<&RugstSearchOptions> for crate::search::SearchOptions {
     fn from(value: &RugstSearchOptions) -> Self {
@@ -28,13 +27,15 @@ pub enum RugstError {
     InvalidUtf8 = 2,
     InternalError = 3,
 }
-//ダミー
-//複数スレッドから同じハンドルを叩かれても内部状態が壊れないよう、
-//Mutexで排他制御する(以前はここに排他制御が一切なく、マルチスレッドから
-//呼ばれるとUBになっていた)
+
+// Rugst 自体が内部で(埋め込み用・DB用それぞれ別々に)ロックを持つように
+// なったため、Rugst は Sync になる。以前のように RugstHandle 側で
+// Mutex<Rugst> を被せて「呼び出し全体」を1本のロックで直列化する
+// 必要はなくなった。これにより、埋め込み計算とDBアクセスが互いを
+// ブロックしなくなり、複数スレッドからの呼び出しがより並行に進む。
 #[repr(C)]
 pub struct RugstHandle {
-    inner: Mutex<Rugst>,
+    inner: Rugst,
 }
 //検索オプション
 #[repr(C)]
@@ -59,21 +60,27 @@ pub extern "C" fn rugst_create(db_path: *const c_char) -> *mut RugstHandle {
     }
 
     // パニックが FFI 境界を越えるのを防ぐ
-    let result = catch_unwind(|| unsafe {
-        // C-String から文字列スライスへの変換
-        let c_str = CStr::from_ptr(db_path);
-        let db_path_str = match c_str.to_str() {
-            Ok(s) => s,
-            Err(_) => return std::ptr::null_mut(),
-        };
+    let result = catch_unwind(|| {
+        // SAFETY: db_path は直前に null チェック済み。C呼び出し側は
+        // rugst_create に渡す間、db_path が有効なNUL終端C文字列を指す
+        // ポインタであり続けることを保証する契約になっている
+        // (この関数のシグネチャ上の前提)。
+        unsafe {
+            // C-String から文字列スライスへの変換
+            let c_str = CStr::from_ptr(db_path);
+            let db_path_str = match c_str.to_str() {
+                Ok(s) => s,
+                Err(_) => return std::ptr::null_mut(),
+            };
 
-        // インスタンスの生成
-        match Rugst::new(db_path_str) {
-            Ok(rugst) => {
-                // メモリをヒープに確保し、C側に所有権を放棄する
-                Box::into_raw(Box::new(RugstHandle { inner: Mutex::new(rugst) }))
+            // インスタンスの生成
+            match Rugst::new(db_path_str) {
+                Ok(rugst) => {
+                    // メモリをヒープに確保し、C側に所有権を放棄する
+                    Box::into_raw(Box::new(RugstHandle { inner: rugst }))
+                }
+                Err(_) => std::ptr::null_mut(),
             }
-            Err(_) => std::ptr::null_mut(),
         }
     });
 
@@ -87,6 +94,10 @@ pub extern "C" fn rugst_destroy(handle: *mut RugstHandle) {
         return;
     }
 
+    // SAFETY: handle は null チェック済み。呼び出し契約として、
+    // handle は rugst_create が返した有効なポインタであり、
+    // rugst_destroy は各ハンドルにつき一度しか呼ばれないことを
+    // 呼び出し側(C)が保証する必要がある(二重解放はUB)。
     unsafe {
         drop(Box::from_raw(handle));
     }
@@ -110,7 +121,8 @@ pub extern "C" fn rugst_remember(
         return RugstError::NullPointer;
     }
 
-    // C文字列 → Rust文字列
+    // SAFETY: channel_id は null チェック済み。呼び出し側は有効な
+    // NUL終端C文字列を指すポインタを渡す契約になっている。
     let channel_id = unsafe {
         match CStr::from_ptr(channel_id).to_str() {
             Ok(s) => s,
@@ -118,6 +130,8 @@ pub extern "C" fn rugst_remember(
         }
     };
 
+    // SAFETY: author_id も同様にnullチェック済みで、呼び出し側が
+    // 有効なNUL終端C文字列であることを保証する契約。
     let author_id = unsafe {
         match CStr::from_ptr(author_id).to_str() {
             Ok(s) => s,
@@ -125,6 +139,7 @@ pub extern "C" fn rugst_remember(
         }
     };
 
+    // SAFETY: role も同様。
     let role = unsafe {
         match CStr::from_ptr(role).to_str() {
             Ok(s) => s,
@@ -132,6 +147,7 @@ pub extern "C" fn rugst_remember(
         }
     };
 
+    // SAFETY: content も同様。
     let content = unsafe {
         match CStr::from_ptr(content).to_str() {
             Ok(s) => s,
@@ -139,18 +155,14 @@ pub extern "C" fn rugst_remember(
         }
     };
 
-    // 生ポインタ → Rustの参照
+    // SAFETY: handle は null チェック済みで、rugst_create が返した
+    // 有効なポインタであることを呼び出し側が保証する契約。
+    // Rugst は内部の埋め込み用・DB用ロックによりSyncなので、
+    // 共有参照から直接メソッドを呼び出して問題ない。
     let handle_ref = unsafe { &*handle };
 
-    // 他スレッドがロック中にpanicしても以降ずっと死んだままにならないよう、
-    // poison時は内部値を回収して継続する
-    let mut rugst = handle_ref
-        .inner
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-
-    // Rust内部APIを呼ぶ
-    match rugst.remember(channel_id, author_id, role, content) {
+    // Rust内部APIを呼ぶ(remember は &self で足りる)
+    match handle_ref.inner.remember(channel_id, author_id, role, content) {
         Ok(()) => RugstError::Ok,
         Err(_) => RugstError::InternalError,
     }
@@ -167,7 +179,7 @@ pub struct RugstSearchResults {
     pub len: usize,
     // 確保時の実際のcapacity。解放時は必ずこの値を使うこと。
     // len と capacity が食い違うと Vec::from_raw_parts が誤ったレイアウトで
-    // 解放してしまい未定義動作になる(以前のバグ)。
+    // 解放してしまい未定義動作になる。
     pub capacity: usize,
 }
 #[unsafe(no_mangle)]
@@ -181,6 +193,9 @@ pub extern "C" fn rugst_search(
         return empty_results();
     }
 
+    // SAFETY: handle/channel_id/query は直前にnullチェック済み。
+    // 呼び出し側は有効なポインタ(handleはrugst_createが返したもの、
+    // channel_id/queryは有効なNUL終端C文字列)を渡す契約になっている。
     let result = catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
         let channel_id = match cstr_to_str(channel_id) {
             Some(s) => s,
@@ -193,14 +208,12 @@ pub extern "C" fn rugst_search(
         };
 
         let handle_ref = &*handle;
-        let mut rugst = handle_ref
-            .inner
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
 
         let options = crate::search::SearchOptions::from(&options);
 
-        let results = match rugst.search(channel_id, query, &options) {
+        // search も &self で足りる(embedding用ロックとDB用ロックは
+        // それぞれの内部で個別に取得・解放される)
+        let results = match handle_ref.inner.search(channel_id, query, &options) {
             Ok(results) => results,
             Err(_) => return empty_results(),
         };
@@ -242,6 +255,10 @@ pub extern "C" fn rugst_search(
 }
 //ヘルパー関数2つ
 // 1. C-chrをstrに変換
+//
+// SAFETY: 呼び出し側は、ptrがnullでない場合は有効なNUL終端C文字列を
+// 指すポインタであることを保証する必要がある。この関数自体は
+// nullチェックのみ行い、ポインタの有効性そのものは呼び出し契約に依存する。
 unsafe fn cstr_to_str<'a>(ptr: *const c_char) -> Option<&'a str> {
     if ptr.is_null() {
         return None;
@@ -267,8 +284,14 @@ pub extern "C" fn rugst_free_search_results(
         return;
     }
 
+    // SAFETY: results は rugst_search が返した RugstSearchResults を
+    // そのまま渡す契約(len/capacity/resultsのいずれも書き換えないこと)。
+    // capacity は確保時にshrink_to_fit済みの実際の値なので、
+    // Vec::from_raw_parts に渡すレイアウトは確保時と一致する。
+    // また各要素のtextはCString::into_rawで生成されたポインタなので
+    // CString::from_rawで解放できる。この関数は各ハンドルにつき
+    // 一度しか呼ばれない契約(二重解放はUB)。
     unsafe {
-        // 確保時と同じ capacity を使って解放する(len ではなく capacity)
         let results_vec = Vec::from_raw_parts(
             results.results,
             results.len,

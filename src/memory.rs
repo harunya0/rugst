@@ -31,6 +31,15 @@ impl HistoryStore {
             "CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at)",
             [],
         )?;
+        // save_message の重複チェック/UPSERT用のWHERE句
+        // (channel_id, author_id, role, content) をそのままカバーする
+        // 複合インデックス。以前はchannel_id以外の列にインデックスが無く、
+        // 書き込みのたびにフルスキャンに近い形になっていた。
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_dedup
+             ON messages(channel_id, author_id, role, content)",
+            [],
+        )?;
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -46,17 +55,16 @@ impl HistoryStore {
         embedding: &[f32],
     ) -> anyhow::Result<()> {
         // 他スレッドがpanicしてもMutexをpoisonedのまま死なせず、
-        // 内部値を回収して処理を継続する
+        // 内部値を回収して継続する
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
 
         let now = chrono_now();
         let blob = f32_to_bytes(embedding);
 
-        // 以前は完全一致するメッセージがあると保存自体をスキップしていたが、
-        // それだと「同じ内容の発言を後日繰り返した」という事実自体が
-        // 履歴から消えてしまい、HistoryStoreの目的(会話履歴の正確な記録)と
-        // 矛盾していた。now は最新の再送を、created_at / embedding だけを
-        // 更新するUPSERTに変更する(発言そのものの重複行は増やさない)。
+        // 完全一致するメッセージがあれば、行を増やさず created_at /
+        // embedding だけを更新する(UPSERT)。同じ発言を後日繰り返した
+        // という事実自体は失わず、履歴の正確性を保つ。
+        // idx_messages_dedup がこのWHERE句をそのままカバーする。
         let updated = conn.execute(
             "UPDATE messages
              SET created_at = ?1, embedding = ?2
@@ -110,10 +118,7 @@ impl HistoryStore {
 
     /// 検索候補を取得する。
     /// `window` が `Some(n)` なら直近n件、`None` ならチャンネルの全メッセージが
-    /// 対象になる。以前は呼び出し元(lib.rs)が常に1000固定で呼んでおり、
-    /// それより古いメッセージは意味的に関連していても検索対象から
-    /// 事前に除外されてしまっていた(「意味的類似度 + 時間減衰」という
-    /// 設計思想に反していた)。
+    /// 対象になる。
     pub fn get_candidates_for_search(
         &self,
         channel_id: &str,
@@ -155,13 +160,6 @@ impl HistoryStore {
 
         Ok(candidates)
     }
-
-    // list_sessions / delete_session は "channel_id" が "channel:session"
-    // 形式であることを前提にしていたが、remember() / save_message() を含め
-    // どこにもその形式でchannel_idを組み立てる処理が存在せず、常に空を
-    // 返すだけの到達不能コードだった。呼び出し元も存在しなかったため削除。
-    // セッション分割が必要になった場合は、channel_idの組み立てルールを
-    // 含めて設計し直す必要がある。
 }
 
 fn map_candidate_row(row: &rusqlite::Row) -> rusqlite::Result<MemoryCandidate> {
@@ -188,4 +186,88 @@ pub fn f32_to_bytes(v: &[f32]) -> Vec<u8> {
 
 pub fn bytes_to_f32(b: &[u8]) -> Vec<f32> {
     b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn count_messages(store: &HistoryStore, channel_id: &str) -> i64 {
+        let conn = store.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COUNT(*) FROM messages WHERE channel_id = ?1",
+            rusqlite::params![channel_id],
+            |row| row.get(0),
+        )
+            .unwrap()
+    }
+
+    #[test]
+    fn save_message_same_content_upserts_instead_of_duplicating() {
+        let store = HistoryStore::new(":memory:").unwrap();
+
+        store
+            .save_message("ch1", "user1", "user", "こんにちは", &[0.1, 0.2])
+            .unwrap();
+        store
+            .save_message("ch1", "user1", "user", "こんにちは", &[0.1, 0.2])
+            .unwrap();
+
+        // 完全一致するメッセージを2回保存しても行は1件のまま
+        assert_eq!(count_messages(&store, "ch1"), 1);
+    }
+
+    #[test]
+    fn save_message_different_content_inserts_new_row() {
+        let store = HistoryStore::new(":memory:").unwrap();
+
+        store
+            .save_message("ch1", "user1", "user", "こんにちは", &[0.1, 0.2])
+            .unwrap();
+        store
+            .save_message("ch1", "user1", "user", "さようなら", &[0.3, 0.4])
+            .unwrap();
+
+        assert_eq!(count_messages(&store, "ch1"), 2);
+    }
+
+    #[test]
+    fn get_candidates_for_search_none_returns_all_messages() {
+        let store = HistoryStore::new(":memory:").unwrap();
+
+        for i in 0..5 {
+            store
+                .save_message(
+                    "ch1",
+                    "user1",
+                    "user",
+                    &format!("message {i}"),
+                    &[i as f32],
+                )
+                .unwrap();
+        }
+
+        let candidates = store.get_candidates_for_search("ch1", None).unwrap();
+        assert_eq!(candidates.len(), 5);
+    }
+
+    #[test]
+    fn get_candidates_for_search_some_limits_results() {
+        let store = HistoryStore::new(":memory:").unwrap();
+
+        for i in 0..5 {
+            store
+                .save_message(
+                    "ch1",
+                    "user1",
+                    "user",
+                    &format!("message {i}"),
+                    &[i as f32],
+                )
+                .unwrap();
+        }
+
+        let candidates = store.get_candidates_for_search("ch1", Some(2)).unwrap();
+        assert_eq!(candidates.len(), 2);
+    }
 }

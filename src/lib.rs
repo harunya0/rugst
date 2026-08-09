@@ -3,34 +3,52 @@ pub mod memory;
 pub mod search;
 mod ffi;
 
+use std::sync::Mutex;
+
 use embedding::{EmbeddingProvider, LocalEmbedding};
 use memory::HistoryStore;
 pub use search::{SearchOptions, SearchResult};
 use crate::search::search_similar_with_decay;
 
 pub struct Rugst {
-    embedding: LocalEmbedding,
+    // 埋め込みモデル用のロックをDB用のロック(HistoryStore内部の
+    // Mutex<Connection>)とは別に持つ。以前はRugst全体を1本のMutexで
+    // FFI層から囲んでいたため、埋め込み推論(CPU負荷が高い)の間は
+    // 他スレッドのDB読み書きも完全にブロックされていた。
+    // ロックを分離することで、あるスレッドが埋め込み計算をしている間も
+    // 別スレッドはDBアクセス側の処理を進められるようになる。
+    embedding: Mutex<LocalEmbedding>,
     memory: HistoryStore,
 }
 
 impl Rugst {
     pub fn new(db_path: &str) -> anyhow::Result<Self> {
         Ok(Self {
-            embedding: LocalEmbedding::new()?,
+            embedding: Mutex::new(LocalEmbedding::new()?),
             memory: HistoryStore::new(db_path)?,
         })
     }
 }
 
 impl Rugst {
+    // 埋め込み・DBそれぞれが内部でロックを取るようになったため、
+    // このメソッド自体は &mut self ではなく &self で足りる。
     pub fn remember(
-        &mut self,
+        &self,
         channel_id: &str,
         author_id: &str,
         role: &str,
         content: &str,
     ) -> anyhow::Result<()> {
-        let embedding = self.embedding.embed(content)?;
+        let embedding = {
+            // 他スレッドがロック中にpanicしてもpoisonedのまま死なせず、
+            // 内部値を回収して継続する
+            let mut model = self
+                .embedding
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            model.embed(content)?
+        };
 
         self.memory.save_message(
             channel_id,
@@ -46,16 +64,19 @@ impl Rugst {
 
 impl Rugst {
     pub fn search(
-        &mut self,
+        &self,
         channel_id: &str,
         query: &str,
         options: &SearchOptions,
     ) -> anyhow::Result<Vec<SearchResult>> {
-        let embedding = self.embedding.embed(query)?;
+        let embedding = {
+            let mut model = self
+                .embedding
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            model.embed(query)?
+        };
 
-        // 以前はここで 1000 を固定で渡しており、意味的に関連する古い
-        // メッセージが検索候補から漏れる原因になっていた。
-        // options.candidate_window (デフォルト None = 全件)を使う。
         let candidates =
             self.memory.get_candidates_for_search(
                 channel_id,
