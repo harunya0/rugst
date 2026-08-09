@@ -30,9 +30,9 @@ pub struct SearchOptions {
     pub min_score: f32,
 }
 
-#[derive(Debug)]
-pub struct SearchResult<'a> {
-    pub text: &'a str,
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub text: String,
     pub score: f32,
     pub created_at: i64,
 }
@@ -41,7 +41,7 @@ pub fn search_similar_with_decay<'a>(
     candidates: &'a [MemoryCandidate],
     query_embedding: &[f32],
     options: &SearchOptions,
-) -> Vec<SearchResult<'a>> {
+) -> Vec<SearchResult> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -77,7 +77,7 @@ pub fn search_similar_with_decay<'a>(
         .into_iter()
         .take(options.top_k)
         .map(|(text, score, created_at)| SearchResult{
-            text,
+            text: text.to_string(),
             score,
             created_at,
         })
