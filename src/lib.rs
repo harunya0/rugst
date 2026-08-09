@@ -53,10 +53,13 @@ impl Rugst {
     ) -> anyhow::Result<Vec<SearchResult>> {
         let embedding = self.embedding.embed(query)?;
 
+        // 以前はここで 1000 を固定で渡しており、意味的に関連する古い
+        // メッセージが検索候補から漏れる原因になっていた。
+        // options.candidate_window (デフォルト None = 全件)を使う。
         let candidates =
             self.memory.get_candidates_for_search(
                 channel_id,
-                1000,
+                options.candidate_window,
             )?;
 
         Ok(search_similar_with_decay(
