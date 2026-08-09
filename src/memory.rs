@@ -117,11 +117,17 @@ impl HistoryStore {
     }
 
     /// 検索候補を取得する。
+    /// `role` を指定すると、そのroleのレコードだけが検索対象になる
+    /// (例: "fact" だけを検索し、user/assistantの過去発言を除外する)。
+    /// これを絞らないと、AIが過去に発言した誤った回答(role="assistant")
+    /// までもが次回以降の検索候補に混ざり、admin側でfactを更新しても
+    /// 古い回答が検索結果に残り続けてしまう。
     /// `window` が `Some(n)` なら直近n件、`None` ならチャンネルの全メッセージが
     /// 対象になる。
     pub fn get_candidates_for_search(
         &self,
         channel_id: &str,
+        role: &str,
         window: Option<i64>,
     ) -> anyhow::Result<Vec<MemoryCandidate>> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
@@ -132,12 +138,13 @@ impl HistoryStore {
                     "SELECT content, embedding, created_at
                      FROM messages
                      WHERE channel_id = ?1
+                       AND role = ?2
                        AND embedding IS NOT NULL
                      ORDER BY created_at DESC
-                     LIMIT ?2",
+                     LIMIT ?3",
                 )?;
                 let rows = stmt.query_map(
-                    rusqlite::params![channel_id, limit],
+                    rusqlite::params![channel_id, role, limit],
                     map_candidate_row,
                 )?;
                 rows.filter_map(|r| r.ok()).collect()
@@ -147,11 +154,12 @@ impl HistoryStore {
                     "SELECT content, embedding, created_at
                      FROM messages
                      WHERE channel_id = ?1
+                       AND role = ?2
                        AND embedding IS NOT NULL
                      ORDER BY created_at DESC",
                 )?;
                 let rows = stmt.query_map(
-                    rusqlite::params![channel_id],
+                    rusqlite::params![channel_id, role],
                     map_candidate_row,
                 )?;
                 rows.filter_map(|r| r.ok()).collect()
@@ -159,6 +167,50 @@ impl HistoryStore {
         };
 
         Ok(candidates)
+    }
+
+    /// role が一致する全レコードを取得する(事実管理用)。created_at昇順(古い順)。
+    pub fn list_by_role(
+        &self,
+        channel_id: &str,
+        role: &str,
+    ) -> anyhow::Result<Vec<(i64, String, i64)>> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT id, content, created_at FROM messages
+         WHERE channel_id = ?1 AND role = ?2
+         ORDER BY created_at ASC",
+        )?;
+
+        let rows = stmt.query_map(rusqlite::params![channel_id, role], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+        })?;
+
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// idを指定してレコードを削除する。削除できた場合はtrue。
+    pub fn delete_by_id(&self, id: i64) -> anyhow::Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let affected = conn.execute("DELETE FROM messages WHERE id = ?1", rusqlite::params![id])?;
+        Ok(affected > 0)
+    }
+
+    /// idを指定して本文とembeddingを更新する。更新できた場合はtrue。
+    pub fn update_content_by_id(
+        &self,
+        id: i64,
+        content: &str,
+        embedding: &[f32],
+    ) -> anyhow::Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let blob = f32_to_bytes(embedding);
+        let now = chrono_now();
+        let affected = conn.execute(
+            "UPDATE messages SET content = ?1, embedding = ?2, created_at = ?3 WHERE id = ?4",
+            rusqlite::params![content, blob, now, id],
+        )?;
+        Ok(affected > 0)
     }
 }
 
@@ -247,7 +299,7 @@ mod tests {
                 .unwrap();
         }
 
-        let candidates = store.get_candidates_for_search("ch1", None).unwrap();
+        let candidates = store.get_candidates_for_search("ch1", "user", None).unwrap();
         assert_eq!(candidates.len(), 5);
     }
 
@@ -267,7 +319,7 @@ mod tests {
                 .unwrap();
         }
 
-        let candidates = store.get_candidates_for_search("ch1", Some(2)).unwrap();
+        let candidates = store.get_candidates_for_search("ch1", "user", Some(2)).unwrap();
         assert_eq!(candidates.len(), 2);
     }
 }
