@@ -22,8 +22,13 @@ jobs:
         dotnet-version: '8.0.x'
 
     - name: Build and Pack
-      run: dotnet pack dotnet/Rugst.NET/Rugst.NET.csproj -c Release -o ${{ github.workspace }}/output
+      shell: pwsh
+      run: |
+        $VERSION = "${{ github.ref_name }}".TrimStart('v')
+        dotnet pack dotnet/Rugst.NET/Rugst.NET.csproj -c Release -o ${{ github.workspace }}/output /p:PackageVersion=$VERSION
 
     - name: Push to NuGet
-      run: dotnet nuget push ${{ github.workspace }}/output/*.nupkg --source https://api.nuget.org/v3/index.json
       shell: pwsh
+      run: |
+        $NUPKG = (Get-Item ${{ github.workspace }}/output/*.nupkg).FullName
+        dotnet nuget push $NUPKG --source https://api.nuget.org/v3/index.json
