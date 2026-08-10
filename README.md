@@ -11,11 +11,14 @@ semantically similar memories with time-based decay.
 
 ## Features
 
-- Local vector embedding with FastEmbed
+- Local vector embedding with FastEmbed (multilingual, incl. Japanese)
 - SQLite-based persistent memory
 - Semantic similarity search
+- Hybrid search (vector similarity + FTS5/BM25 keyword search, merged with
+  Reciprocal Rank Fusion)
 - Time-based memory decay
 - Configurable search options
+- Fact management API (list / update / delete stored facts by id)
 - C-compatible FFI API
 - No external vector database required
 
@@ -43,7 +46,7 @@ Add Rugst to your Cargo.toml:
 
 ```toml
 [dependencies]
-rugst = "0.2.2"
+rugst = "0.2.7"
 ```
 
 ## Rust API
@@ -96,6 +99,46 @@ for result in results {
 }
 ```
 
+### Hybrid search (vector + keyword)
+
+Set `enable_fts: true` to combine semantic similarity with FTS5/BM25 keyword
+matching. The two rankings are merged with Reciprocal Rank Fusion (RRF) and
+normalized back to a 0–1 scale, so `min_score` still works the same way as
+in vector-only search.
+
+```rust
+let options = SearchOptions {
+    top_k: 5,
+    half_life_days: 30.0,
+    min_score: 0.3,
+    enable_fts: true,
+    rrf_k: 60,       // RRF k parameter (higher = flatter rank influence)
+    fts_weight: 1.0, // weight of the keyword match relative to vector similarity
+    ..Default::default()
+};
+
+let results = rugst.search("general", "fact", "opening hours", &options)?;
+```
+
+### Manage stored facts
+
+Facts (records saved with `role = "fact"`) can be listed, edited, or removed
+by id — useful for building an admin UI on top of Rugst.
+
+```rust
+// List all facts in a channel
+let facts = rugst.list_by_role("general", "fact")?;
+for (id, text, created_at) in facts {
+    println!("#{id}: {text} ({created_at})");
+}
+
+// Update a fact's content (embedding is recomputed automatically)
+rugst.update(42, "Updated fact content")?;
+
+// Delete a fact
+rugst.delete(42)?;
+```
+
 ### Get recent history
 
 Fetches the channel's recent messages in chronological (oldest-first) order,
@@ -115,9 +158,14 @@ for (role, content) in history {
 |---|---|
 | top_k | Maximum number of results |
 | half_life_days | Half-life used for time decay |
-| min_score | Minimum score required for a result |
+| min_score | Minimum score required for a result (0–1 scale, applies to both vector-only and hybrid search) |
+| candidate_window | Limit search to the N most recent candidates. `None` (or ≤0 over FFI) searches the whole channel |
+| enable_fts | Enable hybrid search (vector + FTS5/BM25 keyword search via RRF). Defaults to vector-only |
+| rrf_k | RRF k parameter used when `enable_fts` is true. Defaults to 60 |
+| fts_weight | Weight applied to the keyword match score when `enable_fts` is true. Defaults to 1.0 |
 
-The final search score combines semantic similarity with time decay.
+The final search score combines semantic similarity (or the RRF-merged score,
+in hybrid mode) with time decay.
 
 Older memories gradually become less relevant, while semantically similar
 recent memories receive a higher score.
@@ -150,12 +198,19 @@ RugstError result = rugst_remember(
 RugstSearchOptions options = {
     .top_k = 5,
     .half_life_days = 30.0f,
-    .min_score = 0.3f
+    .min_score = 0.3f,
+    .candidate_window = 0,   // <= 0 means "search all messages in the channel"
+    .enable_fts = 0,         // 1 to enable hybrid vector + FTS5/BM25 search
+    .rrf_k = 0,              // <= 0 uses the default (60)
+    .fts_weight = 0.0f       // <= 0 uses the default (1.0)
 };
 
 RugstSearchResults results =
-    rugst_search(handle, "general", "Rust", options);
+    rugst_search(handle, "general", "fact", "Rust", options);
 ```
+
+Note that `role` (`"fact"` here) filters which records are searched — pass
+the same `role` you used with `rugst_remember`.
 
 ### Get recent history
 
@@ -164,12 +219,32 @@ RugstHistoryResults history =
     rugst_get_recent_history(handle, "general", 20);
 ```
 
+### Manage stored facts
+
+```c
+// List facts
+RugstListResults facts = rugst_list(handle, "general", "fact");
+// ... free with rugst_free_list_results(facts);
+
+// Update a fact (embedding is recomputed automatically)
+RugstError update_result = rugst_update(handle, id, "Updated fact content");
+
+// Delete a fact
+RugstError delete_result = rugst_delete(handle, id);
+```
+
 ### Free search results
 
 Search results allocated by Rugst must be released with:
 
 ```c
 rugst_free_search_results(results);
+```
+
+### Free list results
+
+```c
+rugst_free_list_results(facts);
 ```
 
 ### Free history results
@@ -229,12 +304,13 @@ client.Remember(
     content: "I'm learning about Rust and .NET bindings."
 );
 
-// Search memories
+// Search memories (hybrid search + fact management options shown)
 var options = new RugstSearchOptions
 {
     TopK = 5,
     HalfLifeDays = 30f,
-    MinScore = 0.3f
+    MinScore = 0.3f,
+    EnableFts = true, // combine vector similarity with FTS5/BM25 keyword search
 };
 
 var results = client.Search(
@@ -255,6 +331,11 @@ foreach (var entry in history)
 {
     Console.WriteLine($"{entry.Role}: {entry.Content}");
 }
+
+// Manage stored facts (role="fact" records), e.g. for an admin UI
+var facts = client.ListFacts(channelId: "general");
+client.UpdateFact(id: facts[0].Id, content: "Updated fact content");
+client.DeleteFact(id: facts[0].Id);
 ```
 
 ## Examples
@@ -262,13 +343,13 @@ foreach (var entry in history)
 A basic Rust example is available at:
 
 ```
-examples/basic.rs
+examples/RustExample.rs
 ```
 
 Run it with:
 
 ```bash
-cargo run --example basic
+cargo run --example RustExample
 ```
 
 ## First run

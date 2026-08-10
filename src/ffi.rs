@@ -15,6 +15,16 @@ impl From<&RugstSearchOptions> for crate::search::SearchOptions {
             } else {
                 None
             },
+            enable_fts: value.enable_fts != 0,
+            // rrf_k / fts_weight は 0 (未設定/デフォルトのまま) を
+            // 「ネイティブ側の既定値を使う」という意味に解釈する。
+            // C側の構造体をゼロ初期化しただけの呼び出しでも安全な値になるように。
+            rrf_k: if value.rrf_k > 0 { value.rrf_k } else { 60 },
+            fts_weight: if value.fts_weight > 0.0 {
+                value.fts_weight
+            } else {
+                1.0
+            },
         }
     }
 }
@@ -45,6 +55,14 @@ pub struct RugstSearchOptions {
     pub min_score: f32,
     /// 検索候補の件数上限。0以下を渡すと全件が対象になる。
     pub candidate_window: i64,
+    /// ハイブリッド検索(ベクトル類似度 + FTS5のBM25キーワード検索をRRFで統合)
+    /// を有効にするか。0=無効(従来通りベクトルのみ)、それ以外=有効。
+    pub enable_fts: i32,
+    /// RRF(Reciprocal Rank Fusion)のkパラメータ。0以下を渡すと
+    /// 既定値(60)が使われる。
+    pub rrf_k: u32,
+    /// FTS5側のRRFスコアに掛ける重み。0以下を渡すと既定値(1.0)が使われる。
+    pub fts_weight: f32,
 }
 //バージョン情報
 #[unsafe(no_mangle)]
@@ -159,16 +177,31 @@ pub extern "C" fn rugst_remember(
     // 有効なポインタであることを呼び出し側が保証する契約。
     // Rugst は内部の埋め込み用・DB用ロックによりSyncなので、
     // 共有参照から直接メソッドを呼び出して問題ない。
-    let handle_ref = unsafe { &*handle };
+    //
+    // パニックがFFI境界を越えるのを防ぐため catch_unwind で包む
+    // (rugst_search / rugst_delete / rugst_update などと同じ理由。
+    // remember は呼び出し頻度が最も高い関数なので、ここが素通しだと
+    // 一番危険が高い)。
+    let result = catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let handle_ref = unsafe { &*handle };
+        handle_ref.inner.remember(channel_id, author_id, role, content)
+    }));
 
-    // Rust内部APIを呼ぶ(remember は &self で足りる)
-    match handle_ref.inner.remember(channel_id, author_id, role, content) {
-        Ok(()) => RugstError::Ok,
-        Err(_) => RugstError::InternalError,
+    match result {
+        Ok(Ok(())) => RugstError::Ok,
+        Ok(Err(e)) => {
+            eprintln!("rugst: remember failed: {e:#}");
+            RugstError::InternalError
+        }
+        Err(_) => {
+            eprintln!("rugst: remember panicked");
+            RugstError::InternalError
+        }
     }
 }
 #[repr(C)]
 pub struct RugstSearchResult {
+    pub id: i64,
     pub text: *mut c_char,
     pub score: f32,
     pub created_at: i64,
@@ -223,7 +256,10 @@ pub extern "C" fn rugst_search(
         // 検索候補に混ざらないようにする。
         let results = match handle_ref.inner.search(channel_id, role, query, &options) {
             Ok(results) => results,
-            Err(_) => return empty_results(),
+            Err(e) => {
+                eprintln!("rugst: search failed: {e:#}");
+                return empty_results();
+            }
         };
 
         let mut ffi_results = Vec::with_capacity(results.len());
@@ -235,6 +271,7 @@ pub extern "C" fn rugst_search(
             };
 
             ffi_results.push(RugstSearchResult {
+                id: result.id,
                 text,
                 score: result.score,
                 created_at: result.created_at,
@@ -358,7 +395,10 @@ pub extern "C" fn rugst_list(
         let handle_ref = &*handle;
         let rows = match handle_ref.inner.list_by_role(channel_id, role) {
             Ok(rows) => rows,
-            Err(_) => return empty_list_results(),
+            Err(e) => {
+                eprintln!("rugst: list failed: {e:#}");
+                return empty_list_results();
+            }
         };
 
         let mut items = Vec::with_capacity(rows.len());
@@ -420,8 +460,14 @@ pub extern "C" fn rugst_delete(handle: *mut RugstHandle, id: i64) -> RugstError 
 
     match result {
         Ok(Ok(_)) => RugstError::Ok,
-        Ok(Err(_)) => RugstError::InternalError,
-        Err(_) => RugstError::InternalError,
+        Ok(Err(e)) => {
+            eprintln!("rugst: delete failed: {e:#}");
+            RugstError::InternalError
+        }
+        Err(_) => {
+            eprintln!("rugst: delete panicked");
+            RugstError::InternalError
+        }
     }
 }
 
@@ -457,8 +503,14 @@ pub extern "C" fn rugst_update(
 
     match result {
         Ok(Ok(_)) => RugstError::Ok,
-        Ok(Err(_)) => RugstError::InternalError,
-        Err(_) => RugstError::InternalError,
+        Ok(Err(e)) => {
+            eprintln!("rugst: update failed: {e:#}");
+            RugstError::InternalError
+        }
+        Err(_) => {
+            eprintln!("rugst: update panicked");
+            RugstError::InternalError
+        }
     }
 }
 
@@ -505,7 +557,10 @@ pub extern "C" fn rugst_get_recent_history(
         let handle_ref = &*handle;
         let rows = match handle_ref.inner.get_recent_history(channel_id, limit) {
             Ok(rows) => rows,
-            Err(_) => return empty_history_results(),
+            Err(e) => {
+                eprintln!("rugst: get_recent_history failed: {e:#}");
+                return empty_history_results();
+            }
         };
 
         let mut items = Vec::with_capacity(rows.len());

@@ -5,10 +5,14 @@ namespace Rugst;
 /// <summary>
 /// 検索結果1件を表す管理側のレコード。
 /// </summary>
+/// <param name="Id">レコードの固有ID(DeleteFact/UpdateFactにそのまま渡せる)</param>
 /// <param name="Text">保存されていた本文</param>
-/// <param name="Score">スコア(値が大きいほど関連度が高い想定)</param>
+/// <param name="Score">スコア(値が大きいほど関連度が高い想定)。
+/// EnableFts=falseの場合はコサイン類似度×時間減衰、EnableFts=trueの場合は
+/// RRF(Reciprocal Rank Fusion)スコア×時間減衰なので、両者のスコアを
+/// 単純比較しないこと。</param>
 /// <param name="CreatedAtUnix">記録日時(Unixエポック秒)</param>
-public readonly record struct RugstSearchHit(string Text, float Score, long CreatedAtUnix);
+public readonly record struct RugstSearchHit(long Id, string Text, float Score, long CreatedAtUnix);
 
 /// <summary>
 /// 事実(fact)レコード1件を表す管理側のレコード。
@@ -41,12 +45,37 @@ public sealed class RugstSearchOptions
     /// </summary>
     public long CandidateWindow { get; init; } = 0;
 
+    /// <summary>
+    /// ハイブリッド検索(ベクトル類似度 + FTS5のBM25キーワード検索をRRFで統合)を
+    /// 有効にする。既定はfalse(従来通りベクトル検索のみ)。
+    /// キーワードの完全一致・部分一致(FTS5が得意)と意味的類似(ベクトルが得意)の
+    /// 両方を拾いたい場合にtrueにする。
+    /// </summary>
+    public bool EnableFts { get; init; } = false;
+
+    /// <summary>
+    /// RRF(Reciprocal Rank Fusion)のkパラメータ。0を指定するとネイティブ側の
+    /// 既定値(60)が使われる。値が大きいほど下位の順位の影響が均される
+    /// (=上位と下位の差がつきにくくなる)。EnableFts=falseの場合は無視される。
+    /// </summary>
+    public uint RrfK { get; init; } = 0;
+
+    /// <summary>
+    /// FTS5側のRRFスコアに掛ける重み。0を指定するとネイティブ側の既定値(1.0)が
+    /// 使われる。1.0がベクトル側と対等、大きいほどキーワード一致(FTS5)を、
+    /// 小さいほど意味的類似度(ベクトル)を重視する。EnableFts=falseの場合は無視される。
+    /// </summary>
+    public float FtsWeight { get; init; } = 0f;
+
     internal RugstSearchOptionsNative ToNative() => new()
     {
         TopK = TopK,
         HalfLifeDays = HalfLifeDays,
         MinScore = MinScore,
-        CandidateWindow = CandidateWindow
+        CandidateWindow = CandidateWindow,
+        EnableFts = EnableFts ? 1 : 0,
+        RrfK = RrfK,
+        FtsWeight = FtsWeight
     };
 }
 
@@ -206,7 +235,7 @@ public sealed class RugstClient : IDisposable
                 ? Marshal.PtrToStringUTF8(item.Text) ?? string.Empty
                 : string.Empty;
 
-            results.Add(new RugstSearchHit(text, item.Score, item.CreatedAt));
+            results.Add(new RugstSearchHit(item.Id, text, item.Score, item.CreatedAt));
         }
 
         return results;

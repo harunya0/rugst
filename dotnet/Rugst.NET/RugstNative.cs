@@ -32,6 +32,15 @@ public struct RugstSearchOptionsNative
     public float MinScore;
     /// <summary>検索対象とする直近候補の件数上限(0以下の場合は全件対象)。</summary>
     public long CandidateWindow;
+    /// <summary>
+    /// ハイブリッド検索(ベクトル類似度 + FTS5のBM25キーワード検索をRRFで統合)を
+    /// 有効にするか(0=無効、それ以外=有効)。
+    /// </summary>
+    public int EnableFts;
+    /// <summary>RRF(Reciprocal Rank Fusion)のkパラメータ。0以下ならネイティブ側の既定値(60)を使う。</summary>
+    public uint RrfK;
+    /// <summary>FTS5側のRRFスコアに掛ける重み。0以下ならネイティブ側の既定値(1.0)を使う。</summary>
+    public float FtsWeight;
 }
 
 /// <summary>
@@ -40,6 +49,8 @@ public struct RugstSearchOptionsNative
 [StructLayout(LayoutKind.Sequential)]
 public struct RugstSearchResultNative
 {
+    /// <summary>レコードの固有ID。</summary>
+    public long Id;
     /// <summary>検索結果のテキストポインタ (UTF-8)。</summary>
     public IntPtr Text; // char* (UTF-8)
     /// <summary>検索スコア。</summary>

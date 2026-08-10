@@ -23,9 +23,19 @@ typedef struct {
     float min_score;
     /* 検索候補の件数上限。0以下を渡すと全件(履歴すべて)が対象になる。 */
     int64_t candidate_window;
+    /* ハイブリッド検索(ベクトル類似度 + FTS5のBM25キーワード検索をRRFで
+     * 統合)を有効にするか。0=無効(従来通りベクトルのみ)、それ以外=有効。 */
+    int32_t enable_fts;
+    /* RRF(Reciprocal Rank Fusion)のkパラメータ。0以下を渡すと既定値(60)が
+     * 使われる。値が大きいほど下位の順位の影響が均される。 */
+    uint32_t rrf_k;
+    /* FTS5側のRRFスコアに掛ける重み。0以下を渡すと既定値(1.0)が使われる。
+     * 大きいほどキーワード一致を、小さいほど意味的類似度を重視する。 */
+    float fts_weight;
 } RugstSearchOptions;
 
 typedef struct {
+    int64_t id;
     char* text;
     float score;
     int64_t created_at;

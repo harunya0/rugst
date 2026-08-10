@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use embedding::{EmbeddingProvider, LocalEmbedding};
 use memory::HistoryStore;
 pub use search::{SearchOptions, SearchResult};
-use crate::search::search_similar_with_decay;
+use crate::search::{search_hybrid, search_similar_with_decay};
 
 pub struct Rugst {
     // 埋め込みモデル用のロックをDB用のロック(HistoryStore内部の
@@ -47,7 +47,7 @@ impl Rugst {
                 .embedding
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            model.embed(content)?
+            model.embed_document(content)?
         };
 
         self.memory.save_message(
@@ -75,7 +75,7 @@ impl Rugst {
                 .embedding
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            model.embed(query)?
+            model.embed_query(query)?
         };
 
         let candidates =
@@ -85,11 +85,24 @@ impl Rugst {
                 options.candidate_window,
             )?;
 
-        Ok(search_similar_with_decay(
-            &candidates,
-            &embedding,
-            options,
-        ))
+        if options.enable_fts {
+            // FTS5側の候補もベクトル側と同じ channel_id/role/candidate_window で絞る。
+            // (ベクトル側と同じ「検索対象の母集団」から選ばれるべきなので)
+            let fts_candidates = self.memory.get_fts_candidates(
+                channel_id,
+                role,
+                query,
+                options.candidate_window,
+            )?;
+
+            Ok(search_hybrid(&candidates, &fts_candidates, &embedding, options))
+        } else {
+            Ok(search_similar_with_decay(
+                &candidates,
+                &embedding,
+                options,
+            ))
+        }
     }
     /// 指定チャンネル内の、指定roleのレコードを一覧取得する(事実管理用)。
     pub fn list_by_role(&self, channel_id: &str, role: &str) -> anyhow::Result<Vec<(i64, String, i64)>> {
@@ -105,7 +118,7 @@ impl Rugst {
     pub fn update(&self, id: i64, content: &str) -> anyhow::Result<bool> {
         let embedding = {
             let mut model = self.embedding.lock().unwrap_or_else(|e| e.into_inner());
-            model.embed(content)?
+            model.embed_document(content)?
         };
         self.memory.update_content_by_id(id, content, &embedding)
     }
