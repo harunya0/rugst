@@ -2,6 +2,10 @@
 name = "rugst"
 version = "0.2.2"
 edition = "2024"
+description = "Local semantic memory store with SQLite, FastEmbed, and time-based decay."
+license = "MIT"
+repository = "https://github.com/harunya0/rugst"
+readme = "README.md"
 
 [dependencies]
 rusqlite = { version = "0.40.2", features = ["bundled"] }
