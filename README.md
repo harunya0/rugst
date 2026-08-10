@@ -7,6 +7,7 @@ in SQLite, generates embeddings locally with FastEmbed, and retrieves
 semantically similar memories with time-based decay.
 
 [Get NuGet here.](https://www.nuget.org/packages/Rugst)
+[The crate is here.](https://crates.io/crates/rugst)
 
 ## Features
 
@@ -20,68 +21,78 @@ semantically similar memories with time-based decay.
 
 ## Architecture
 
-    Application
-        │
-        ▼
-      Rugst
-        ├── LocalEmbedding
-        │      └── FastEmbed
-        │
-        ├── HistoryStore
-        │      └── SQLite
-        │
-        └── Semantic Search
-               ├── Cosine similarity
-               └── Time decay
+```
+Application
+    │
+    ▼
+  Rugst
+    ├── LocalEmbedding
+    │      └── FastEmbed
+    │
+    ├── HistoryStore
+    │      └── SQLite
+    │
+    └── Semantic Search
+           ├── Cosine similarity
+           └── Time decay
+```
 
 ## Installation
 
 Add Rugst to your Cargo.toml:
 
-    [dependencies]
-    rugst = "0.2.2"
+```toml
+[dependencies]
+rugst = "0.2.2"
+```
 
 ## Rust API
 
 ### Create a memory store
 
-    use rugst::Rugst;
+```rust
+use rugst::Rugst;
 
-    let rugst = Rugst::new("memory.db")?;
+let rugst = Rugst::new("memory.db")?;
+```
 
 ### Store a message
 
-    rugst.remember(
-        "general",
-        "user",
-        "user",
-        "I'm studying Rust.",
-    )?;
+```rust
+rugst.remember(
+    "general",
+    "user",
+    "user",
+    "I'm studying Rust.",
+)?;
+```
 
 ### Search memories
 
-    use rugst::SearchOptions;
+```rust
+use rugst::SearchOptions;
 
-    let options = SearchOptions {
-        top_k: 5,
-        half_life_days: 30.0,
-        min_score: 0.3,
-    };
+let options = SearchOptions {
+    top_k: 5,
+    half_life_days: 30.0,
+    min_score: 0.3,
+};
 
-    let results = rugst.search(
-        "general",
-        "What I talked about regarding Rust",
-        &options,
-    )?;
+let results = rugst.search(
+    "general",
+    "What I talked about regarding Rust",
+    &options,
+)?;
 
-    for result in results {
-        println!(
-            "[{:.4}] {} ({})",
-            result.score,
-            result.text,
-            result.created_at
-        );
-    }
+for result in results {
+    println!(
+        "[{:.4}] {} ({})",
+        result.score,
+        result.text,
+        result.created_at
+    );
+}
+```
 
 ## Search options
 
@@ -100,6 +111,66 @@ recent memories receive a higher score.
 
 Rugst also provides a C-compatible API for use from other languages.
 
+### Create
+
+```c
+RugstHandle *handle = rugst_create("memory.db");
+```
+
+### Store a memory
+
+```c
+RugstError result = rugst_remember(
+    handle,
+    "general",
+    "user",
+    "user",
+    "Hello, Rust!"
+);
+```
+
+### Search
+
+```c
+RugstSearchOptions options = {
+    .top_k = 5,
+    .half_life_days = 30.0f,
+    .min_score = 0.3f
+};
+
+RugstSearchResults results =
+    rugst_search(handle, "general", "Rust", options);
+```
+
+### Free search results
+
+Search results allocated by Rugst must be released with:
+
+```c
+rugst_free_search_results(results);
+```
+
+### Destroy
+
+When the handle is no longer needed:
+
+```c
+rugst_destroy(handle);
+```
+
+## Error handling
+
+The FFI API uses `RugstError`:
+
+```c
+typedef enum {
+    RUGST_OK = 0,
+    RUGST_NULL_POINTER = 1,
+    RUGST_INVALID_UTF8 = 2,
+    RUGST_INTERNAL_ERROR = 3
+} RugstError;
+```
+
 ## .NET / C# API
 
 Rugst is also available as a [.NET NuGet Package](https://www.nuget.org/packages/Rugst).
@@ -107,11 +178,13 @@ Rugst is also available as a [.NET NuGet Package](https://www.nuget.org/packages
 ### Installation (.NET)
 
 Install via .NET CLI:
+
 ```bash
 dotnet add package Rugst
 ```
 
 ### Usage (C#)
+
 ```csharp
 using Rugst;
 
@@ -146,63 +219,19 @@ foreach (var hit in results)
 }
 ```
 
-### Create
-
-    RugstHandle *handle = rugst_create("memory.db");
-
-### Store a memory
-
-    RugstError result = rugst_remember(
-        handle,
-        "general",
-        "user",
-        "user",
-        "Hello, Rust!"
-    );
-
-### Search
-
-    RugstSearchOptions options = {
-        .top_k = 5,
-        .half_life_days = 30.0f,
-        .min_score = 0.3f
-    };
-
-    RugstSearchResults results =
-        rugst_search(handle, "general", "Rust", options);
-
-### Free search results
-
-Search results allocated by Rugst must be released with:
-
-    rugst_free_search_results(results);
-
-### Destroy
-
-When the handle is no longer needed:
-
-    rugst_destroy(handle);
-
-## Error handling
-
-The FFI API uses RugstError:
-
-    typedef enum {
-        RUGST_OK = 0,
-        RUGST_NULL_POINTER = 1,
-        RUGST_INVALID_UTF8 = 2,
-        RUGST_INTERNAL_ERROR = 3
-    } RugstError;
-
 ## Examples
 
 A basic Rust example is available at:
 
-    examples/basic.rs
+```
+examples/basic.rs
+```
 
 Run it with:
 
-    cargo run --example basic
+```bash
+cargo run --example basic
+```
 
 ## First run
 
@@ -213,4 +242,4 @@ An internet connection may therefore be required during the initial setup.
 
 ## License
 
-MIT license
+MIT License
