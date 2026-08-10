@@ -28,3 +28,8 @@ fastembed = {
 [lib]
 name = "rugst"
 crate-type = ["rlib", "cdylib"]
+
+[workspace]
+members = [
+    "rugst-mcp",
+]
