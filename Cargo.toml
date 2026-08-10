@@ -1,6 +1,6 @@
 [package]
 name = "rugst"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2024"
 description = "Local semantic memory store with SQLite, FastEmbed, and time-based decay."
 license = "MIT"

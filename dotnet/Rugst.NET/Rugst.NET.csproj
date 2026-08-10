@@ -11,7 +11,7 @@
 
     <!-- NuGet -->
     <PackageId>Rugst</PackageId>
-    <Version>0.2.5</Version>
+    <Version>0.2.6</Version>
     <Authors>harunya0</Authors>
     <Description>
       Rust-based RAG and knowledge retrieval library with .NET bindings.
@@ -23,6 +23,9 @@
     <RepositoryUrl>https://github.com/harunya0/rugst</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
 
+    <!-- README の設定を追加 -->
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
@@ -30,6 +33,11 @@
     <None Include="../../native/rugst.dll"
           Pack="true"
           PackagePath="runtimes/win-x64/native/" />
+
+    <!-- ルート直下の README.md をパッケージに含める設定を追加 -->
+    <None Include="../../README.md"
+          Pack="true"
+          PackagePath="\" />
   </ItemGroup>
 
 </Project>
