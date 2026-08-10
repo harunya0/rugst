@@ -49,10 +49,9 @@ public sealed class RugstSearchOptions
 /// </summary>
 public sealed class RugstClient : IDisposable
 {
-    private IntPtr _handle;
-    private bool _disposed;
+    private readonly RugstSafeHandle _handle;
 
-    private RugstClient(IntPtr handle)
+    private RugstClient(RugstSafeHandle handle)
     {
         _handle = handle;
     }
@@ -63,9 +62,10 @@ public sealed class RugstClient : IDisposable
     /// <param name="dbPath">SQLite等のDBファイルパス。rugst側の実装に依存。</param>
     public static RugstClient Open(string dbPath)
     {
-        IntPtr handle = RugstNative.rugst_create(dbPath);
-        if (handle == IntPtr.Zero)
+        RugstSafeHandle handle = RugstNative.rugst_create(dbPath);
+        if (handle.IsInvalid)
         {
+            handle.Dispose();
             throw new InvalidOperationException(
                 $"rugst_create に失敗しました (db_path: {dbPath})。パスの権限やディレクトリの存在を確認してください。");
         }
@@ -211,7 +211,7 @@ public sealed class RugstClient : IDisposable
 
     private void ThrowIfDisposed()
     {
-        if (_disposed)
+        if (_handle.IsClosed)
         {
             throw new ObjectDisposedException(nameof(RugstClient));
         }
@@ -220,33 +220,15 @@ public sealed class RugstClient : IDisposable
     /// <summary>
     /// <see cref="RugstClient"/> で使用されているアンマネージド リソースを解放します。
     /// </summary>
+    /// <remarks>
+    /// 実際のネイティブハンドルの解放は <see cref="RugstSafeHandle"/> が担う
+    /// (SafeHandle は CriticalFinalizerObject を継承しているため、
+    /// Dispose を呼び忘れても確実に rugst_destroy が呼ばれる)。
+    /// そのため、このクラス自体は独自のファイナライザを持たない。
+    /// </remarks>
     public void Dispose()
     {
-        if (_disposed)
-        {
-            return;
-        }
-
-        if (_handle != IntPtr.Zero)
-        {
-            RugstNative.rugst_destroy(_handle);
-            _handle = IntPtr.Zero;
-        }
-
-        _disposed = true;
+        _handle.Dispose();
         GC.SuppressFinalize(this);
-    }
-
-    /// <summary>
-    /// <see cref="RugstClient"/> のインスタンスがガベージ コレクションによって回収される際に、ネイティブ リソースを解放します。
-    /// </summary>
-    ~RugstClient()
-    {
-        // ファイナライザからはネイティブ解放のみ行う(マネージドオブジェクトには触れない)。
-        if (_handle != IntPtr.Zero)
-        {
-            RugstNative.rugst_destroy(_handle);
-            _handle = IntPtr.Zero;
-        }
     }
 }

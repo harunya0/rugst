@@ -51,7 +51,7 @@ pub struct RugstSearchOptions {
 pub extern "C" fn rugst_version() -> u32 {
     1
 }
-//記憶を保存
+//ハンドルを作成
 #[unsafe(no_mangle)]
 pub extern "C" fn rugst_create(db_path: *const c_char) -> *mut RugstHandle {
     // nullptrの早期リターン
@@ -102,7 +102,7 @@ pub extern "C" fn rugst_destroy(handle: *mut RugstHandle) {
         drop(Box::from_raw(handle));
     }
 }
-//dbから会話履歴を取得
+//記憶を保存
 #[unsafe(no_mangle)]
 pub extern "C" fn rugst_remember(
     handle: *mut RugstHandle,

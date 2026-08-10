@@ -103,15 +103,18 @@ internal static class RugstNative
     public static extern uint rugst_version();
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-    public static extern IntPtr rugst_create(
+    public static extern RugstSafeHandle rugst_create(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string db_path);
 
+    // RugstSafeHandle.ReleaseHandle からのみ呼ばれる。RugstSafeHandle は
+    // 生成直後の(まだ SetHandle されただけの)IntPtr をそのまま解放する必要が
+    // あるため、ここだけは SafeHandle ではなく素の IntPtr を受け取る。
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern void rugst_destroy(IntPtr handle);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern RugstError rugst_remember(
-        IntPtr handle,
+        RugstSafeHandle handle,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string channel_id,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string author_id,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string role,
@@ -119,7 +122,7 @@ internal static class RugstNative
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern RugstSearchResultsNative rugst_search(
-        IntPtr handle,
+        RugstSafeHandle handle,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string channel_id,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string role,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string query,
@@ -130,7 +133,7 @@ internal static class RugstNative
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern RugstListResultsNative rugst_list(
-        IntPtr handle,
+        RugstSafeHandle handle,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string channel_id,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string role);
 
@@ -138,11 +141,11 @@ internal static class RugstNative
     public static extern void rugst_free_list_results(RugstListResultsNative results);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-    public static extern RugstError rugst_delete(IntPtr handle, long id);
+    public static extern RugstError rugst_delete(RugstSafeHandle handle, long id);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern RugstError rugst_update(
-        IntPtr handle,
+        RugstSafeHandle handle,
         long id,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string content);
 }

@@ -11,7 +11,7 @@
 
     <!-- NuGet -->
     <PackageId>Rugst</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.2.4</Version>
     <Authors>harunya0</Authors>
     <Description>
       Rust-based RAG and knowledge retrieval library with .NET bindings.
