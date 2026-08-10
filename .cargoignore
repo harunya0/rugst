@@ -426,7 +426,6 @@ Cargo.lock
 *.db
 .idea/
 .fastembed_cache/
-examples/
 dotnet/
 .github/
 .gitignore
