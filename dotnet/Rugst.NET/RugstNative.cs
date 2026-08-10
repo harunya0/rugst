@@ -7,9 +7,13 @@ namespace Rugst;
 /// </summary>
 public enum RugstError : int
 {
+    /// <summary>正常終了。</summary>
     Ok = 0,
+    /// <summary>ヌルポインタが渡されたエラー。</summary>
     NullPointer = 1,
+    /// <summary>不正な UTF-8 文字列が渡されたエラー。</summary>
     InvalidUtf8 = 2,
+    /// <summary>内部処理で発生したエラー。</summary>
     InternalError = 3
 }
 
@@ -20,9 +24,13 @@ public enum RugstError : int
 [StructLayout(LayoutKind.Sequential)]
 public struct RugstSearchOptionsNative
 {
+    /// <summary>取得する上位件数。</summary>
     public uint TopK;
+    /// <summary>スコアの半減期(日数)。</summary>
     public float HalfLifeDays;
+    /// <summary>検索結果に含める最低スコア。</summary>
     public float MinScore;
+    /// <summary>検索対象とする直近候補の件数上限(0以下の場合は全件対象)。</summary>
     public long CandidateWindow;
 }
 
@@ -32,8 +40,11 @@ public struct RugstSearchOptionsNative
 [StructLayout(LayoutKind.Sequential)]
 public struct RugstSearchResultNative
 {
+    /// <summary>検索結果のテキストポインタ (UTF-8)。</summary>
     public IntPtr Text; // char* (UTF-8)
+    /// <summary>検索スコア。</summary>
     public float Score;
+    /// <summary>作成日時 (Unixタイムスタンプ)。</summary>
     public long CreatedAt;
 }
 
@@ -43,8 +54,11 @@ public struct RugstSearchResultNative
 [StructLayout(LayoutKind.Sequential)]
 public struct RugstSearchResultsNative
 {
+    /// <summary>検索結果構造体配列へのポインタ。</summary>
     public IntPtr Results; // RugstSearchResult*
+    /// <summary>検索結果の要素数。</summary>
     public nuint Len;
+    /// <summary>配列のメモリ割り当て容量。</summary>
     public nuint Capacity;
 }
 
@@ -54,8 +68,11 @@ public struct RugstSearchResultsNative
 [StructLayout(LayoutKind.Sequential)]
 public struct RugstListItemNative
 {
+    /// <summary>レコードの固有ID。</summary>
     public long Id;
+    /// <summary>レコードのテキストポインタ (UTF-8)。</summary>
     public IntPtr Text; // char* (UTF-8)
+    /// <summary>作成日時 (Unixタイムスタンプ)。</summary>
     public long CreatedAt;
 }
 
@@ -66,8 +83,11 @@ public struct RugstListItemNative
 [StructLayout(LayoutKind.Sequential)]
 public struct RugstListResultsNative
 {
+    /// <summary>リスト項目構造体配列へのポインタ。</summary>
     public IntPtr Items; // RugstListItem*
+    /// <summary>リスト項目の要素数。</summary>
     public nuint Len;
+    /// <summary>配列のメモリ割り当て容量。</summary>
     public nuint Capacity;
 }
 

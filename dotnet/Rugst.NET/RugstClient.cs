@@ -217,6 +217,9 @@ public sealed class RugstClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// <see cref="RugstClient"/> で使用されているアンマネージド リソースを解放します。
+    /// </summary>
     public void Dispose()
     {
         if (_disposed)
@@ -234,6 +237,9 @@ public sealed class RugstClient : IDisposable
         GC.SuppressFinalize(this);
     }
 
+    /// <summary>
+    /// <see cref="RugstClient"/> のインスタンスがガベージ コレクションによって回収される際に、ネイティブ リソースを解放します。
+    /// </summary>
     ~RugstClient()
     {
         // ファイナライザからはネイティブ解放のみ行う(マネージドオブジェクトには触れない)。

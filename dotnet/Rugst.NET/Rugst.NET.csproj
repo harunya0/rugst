@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <AssemblyName>Rugst</AssemblyName>
+    <RootNamespace>Rugst</RootNamespace>
+
+    <!-- NuGet -->
+    <PackageId>Rugst</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>harunya0</Authors>
+    <Description>
+      Rust-based RAG and knowledge retrieval library with .NET bindings.
+    </Description>
+
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>RAG;AI;Rust;LLM;retrieval;memory</PackageTags>
+
+    <RepositoryUrl>https://github.com/harunya0/rugst</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../native/rugst.dll"
+          Pack="true"
+          PackagePath="runtimes/win-x64/native/" />
+  </ItemGroup>
+
+</Project>
