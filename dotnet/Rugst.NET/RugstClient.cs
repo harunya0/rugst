@@ -16,6 +16,13 @@ public readonly record struct RugstSearchHit(string Text, float Score, long Crea
 public readonly record struct RugstFact(long Id, string Text, long CreatedAtUnix);
 
 /// <summary>
+/// 直近の会話履歴1件を表す管理側のレコード(AIへのプロンプト用)。
+/// </summary>
+/// <param name="Role">"user" / "assistant" などのロール</param>
+/// <param name="Content">本文</param>
+public readonly record struct RugstHistoryEntry(string Role, string Content);
+
+/// <summary>
 /// rugst_search に渡す検索オプション(管理側)。
 /// </summary>
 public sealed class RugstSearchOptions
@@ -161,6 +168,26 @@ public sealed class RugstClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// 指定チャンネルの直近の会話履歴を古い順(時系列順)で取得する。
+    /// AIへのプロンプトに含める用途を想定している。
+    /// </summary>
+    /// <param name="channelId">検索対象のチャンネル</param>
+    /// <param name="limit">取得する最大件数</param>
+    public IReadOnlyList<RugstHistoryEntry> GetRecentHistory(string channelId, long limit)
+    {
+        ThrowIfDisposed();
+        RugstHistoryResultsNative native = RugstNative.rugst_get_recent_history(_handle, channelId, limit);
+        try
+        {
+            return CopyHistoryResults(native);
+        }
+        finally
+        {
+            RugstNative.rugst_free_history_results(native);
+        }
+    }
+
     private static List<RugstSearchHit> CopyResults(RugstSearchResultsNative native)
     {
         var results = new List<RugstSearchHit>(checked((int)native.Len));
@@ -204,6 +231,33 @@ public sealed class RugstClient : IDisposable
                 : string.Empty;
 
             results.Add(new RugstFact(item.Id, text, item.CreatedAt));
+        }
+
+        return results;
+    }
+
+    private static List<RugstHistoryEntry> CopyHistoryResults(RugstHistoryResultsNative native)
+    {
+        var results = new List<RugstHistoryEntry>(checked((int)native.Len));
+        if (native.Items == IntPtr.Zero || native.Len == 0)
+        {
+            return results;
+        }
+
+        int itemSize = Marshal.SizeOf<RugstHistoryItemNative>();
+        for (nuint i = 0; i < native.Len; i++)
+        {
+            IntPtr itemPtr = IntPtr.Add(native.Items, checked((int)i * itemSize));
+            RugstHistoryItemNative item = Marshal.PtrToStructure<RugstHistoryItemNative>(itemPtr);
+
+            string role = item.Role != IntPtr.Zero
+                ? Marshal.PtrToStringUTF8(item.Role) ?? string.Empty
+                : string.Empty;
+            string content = item.Content != IntPtr.Zero
+                ? Marshal.PtrToStringUTF8(item.Content) ?? string.Empty
+                : string.Empty;
+
+            results.Add(new RugstHistoryEntry(role, content));
         }
 
         return results;

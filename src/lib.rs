@@ -109,4 +109,14 @@ impl Rugst {
         };
         self.memory.update_content_by_id(id, content, &embedding)
     }
+
+    /// 指定チャンネルの直近の会話履歴を古い順(時系列順)で取得する。
+    /// AIへのプロンプトに含める用途を想定している。
+    pub fn get_recent_history(
+        &self,
+        channel_id: &str,
+        limit: i64,
+    ) -> anyhow::Result<Vec<(String, String)>> {
+        self.memory.get_recent_history(channel_id, limit)
+    }
 }

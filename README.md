@@ -76,10 +76,12 @@ let options = SearchOptions {
     top_k: 5,
     half_life_days: 30.0,
     min_score: 0.3,
+    ..Default::default()
 };
 
 let results = rugst.search(
     "general",
+    "fact",
     "What I talked about regarding Rust",
     &options,
 )?;
@@ -91,6 +93,19 @@ for result in results {
         result.text,
         result.created_at
     );
+}
+```
+
+### Get recent history
+
+Fetches the channel's recent messages in chronological (oldest-first) order,
+intended for building prompts to send to an AI.
+
+```rust
+let history = rugst.get_recent_history("general", 20)?;
+
+for (role, content) in history {
+    println!("{role}: {content}");
 }
 ```
 
@@ -142,12 +157,27 @@ RugstSearchResults results =
     rugst_search(handle, "general", "Rust", options);
 ```
 
+### Get recent history
+
+```c
+RugstHistoryResults history =
+    rugst_get_recent_history(handle, "general", 20);
+```
+
 ### Free search results
 
 Search results allocated by Rugst must be released with:
 
 ```c
 rugst_free_search_results(results);
+```
+
+### Free history results
+
+History results allocated by Rugst must be released with:
+
+```c
+rugst_free_history_results(history);
 ```
 
 ### Destroy
@@ -216,6 +246,14 @@ var results = client.Search(
 foreach (var hit in results)
 {
     Console.WriteLine($"[{hit.Score:F4}] {hit.Text} (Unix: {hit.CreatedAtUnix})");
+}
+
+// Get recent history (for building an AI prompt)
+var history = client.GetRecentHistory(channelId: "general", limit: 20);
+
+foreach (var entry in history)
+{
+    Console.WriteLine($"{entry.Role}: {entry.Content}");
 }
 ```
 

@@ -461,3 +461,106 @@ pub extern "C" fn rugst_update(
         Err(_) => RugstError::InternalError,
     }
 }
+
+#[repr(C)]
+pub struct RugstHistoryItem {
+    pub role: *mut c_char,
+    pub content: *mut c_char,
+}
+
+#[repr(C)]
+pub struct RugstHistoryResults {
+    pub items: *mut RugstHistoryItem,
+    pub len: usize,
+    // 確保時の実際のcapacity。解放時は必ずこの値を使うこと
+    // (rugst_free_search_results / rugst_free_list_results と同じ理由)。
+    pub capacity: usize,
+}
+
+fn empty_history_results() -> RugstHistoryResults {
+    RugstHistoryResults { items: std::ptr::null_mut(), len: 0, capacity: 0 }
+}
+
+/// 指定チャンネルの直近の会話履歴を古い順(時系列順)で取得する
+/// (AIへのプロンプト用)。
+#[unsafe(no_mangle)]
+pub extern "C" fn rugst_get_recent_history(
+    handle: *mut RugstHandle,
+    channel_id: *const c_char,
+    limit: i64,
+) -> RugstHistoryResults {
+    if handle.is_null() || channel_id.is_null() {
+        return empty_history_results();
+    }
+
+    // SAFETY: handle/channel_id は直前にnullチェック済み。呼び出し側は
+    // 有効なポインタ(handleはrugst_createが返したもの、channel_idは
+    // 有効なNUL終端C文字列)を渡す契約になっている。
+    let result = catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        let channel_id = match cstr_to_str(channel_id) {
+            Some(s) => s,
+            None => return empty_history_results(),
+        };
+
+        let handle_ref = &*handle;
+        let rows = match handle_ref.inner.get_recent_history(channel_id, limit) {
+            Ok(rows) => rows,
+            Err(_) => return empty_history_results(),
+        };
+
+        let mut items = Vec::with_capacity(rows.len());
+        for (role, content) in rows {
+            let role_ptr = match std::ffi::CString::new(role) {
+                Ok(r) => r.into_raw(),
+                Err(_) => continue,
+            };
+            let content_ptr = match std::ffi::CString::new(content) {
+                Ok(c) => c.into_raw(),
+                Err(_) => {
+                    // role_ptr はすでに確保済みなので、破棄せずスキップすると
+                    // リークするため、ここで解放してから読み飛ばす。
+                    drop(std::ffi::CString::from_raw(role_ptr));
+                    continue;
+                }
+            };
+            items.push(RugstHistoryItem { role: role_ptr, content: content_ptr });
+        }
+
+        let len = items.len();
+        // rugst_search / rugst_list と同じ理由で、forgetする前に
+        // capacityを実際の長さに合わせておく。
+        items.shrink_to_fit();
+        let capacity = items.capacity();
+        let ptr = items.as_mut_ptr();
+        std::mem::forget(items);
+
+        RugstHistoryResults { items: ptr, len, capacity }
+    }));
+
+    result.unwrap_or_else(|_| empty_history_results())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rugst_free_history_results(results: RugstHistoryResults) {
+    if results.items.is_null() {
+        return;
+    }
+
+    // SAFETY: rugst_free_search_results / rugst_free_list_results と同じ契約
+    // (results はrugst_get_recent_historyが返した値をそのまま渡すこと、
+    // 各ハンドルにつき一度しか呼ばれないこと)。
+    unsafe {
+        let items_vec = Vec::from_raw_parts(results.items, results.len, results.capacity);
+
+        for item in &items_vec {
+            if !item.role.is_null() {
+                drop(std::ffi::CString::from_raw(item.role));
+            }
+            if !item.content.is_null() {
+                drop(std::ffi::CString::from_raw(item.content));
+            }
+        }
+
+        drop(items_vec);
+    }
+}

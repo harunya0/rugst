@@ -96,6 +96,27 @@ RugstError rugst_update(
     const char* content
 );
 
+typedef struct {
+    char* role;
+    char* content;
+} RugstHistoryItem;
+
+typedef struct {
+    RugstHistoryItem* items;
+    size_t len;
+    size_t capacity;
+} RugstHistoryResults;
+
+/* 指定チャンネルの直近の会話履歴を古い順(時系列順)で取得する
+ * (AIへのプロンプト用)。limitが会話全体の件数上限。 */
+RugstHistoryResults rugst_get_recent_history(
+    RugstHandle* handle,
+    const char* channel_id,
+    int64_t limit
+);
+
+void rugst_free_history_results(RugstHistoryResults results);
+
 #ifdef __cplusplus
 }
 #endif

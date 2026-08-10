@@ -92,6 +92,33 @@ public struct RugstListResultsNative
 }
 
 /// <summary>
+/// rugst.h の RugstHistoryItem に対応する非管理構造体(直近履歴取得用)。
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct RugstHistoryItemNative
+{
+    /// <summary>"user" / "assistant" などのロール文字列ポインタ (UTF-8)。</summary>
+    public IntPtr Role; // char* (UTF-8)
+    /// <summary>本文のテキストポインタ (UTF-8)。</summary>
+    public IntPtr Content; // char* (UTF-8)
+}
+
+/// <summary>
+/// rugst.h の RugstHistoryResults に対応する非管理構造体。
+/// 使い終わったら必ず rugst_free_history_results に渡して解放すること。
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct RugstHistoryResultsNative
+{
+    /// <summary>履歴項目構造体配列へのポインタ。</summary>
+    public IntPtr Items; // RugstHistoryItem*
+    /// <summary>履歴項目の要素数。</summary>
+    public nuint Len;
+    /// <summary>配列のメモリ割り当て容量。</summary>
+    public nuint Capacity;
+}
+
+/// <summary>
 /// rugst.dll の生の P/Invoke シグネチャ。
 /// 呼び出しは <see cref="RugstClient"/> を通して行い、このクラスを直接使わないこと。
 /// </summary>
@@ -148,4 +175,13 @@ internal static class RugstNative
         RugstSafeHandle handle,
         long id,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string content);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern RugstHistoryResultsNative rugst_get_recent_history(
+        RugstSafeHandle handle,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string channel_id,
+        long limit);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void rugst_free_history_results(RugstHistoryResultsNative results);
 }
