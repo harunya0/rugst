@@ -6,6 +6,8 @@ Rugst is a lightweight local memory library that stores conversation history
 in SQLite, generates embeddings locally with FastEmbed, and retrieves
 semantically similar memories with time-based decay.
 
+[Get NuGet here.](https://www.nuget.org/packages/Rugst)
+
 ## Features
 
 - Local vector embedding with FastEmbed
@@ -37,7 +39,7 @@ semantically similar memories with time-based decay.
 Add Rugst to your Cargo.toml:
 
     [dependencies]
-    rugst = "0.1"
+    rugst = "0.2.2"
 
 ## Rust API
 
@@ -53,7 +55,7 @@ Add Rugst to your Cargo.toml:
         "general",
         "user",
         "user",
-        "Rustについて勉強している",
+        "I'm studying Rust.",
     )?;
 
 ### Search memories
@@ -68,7 +70,7 @@ Add Rugst to your Cargo.toml:
 
     let results = rugst.search(
         "general",
-        "Rustについて話したこと",
+        "What I talked about regarding Rust",
         &options,
     )?;
 
@@ -97,6 +99,52 @@ recent memories receive a higher score.
 ## C / FFI API
 
 Rugst also provides a C-compatible API for use from other languages.
+
+## .NET / C# API
+
+Rugst is also available as a [.NET NuGet Package](https://www.nuget.org/packages/Rugst).
+
+### Installation (.NET)
+
+Install via .NET CLI:
+```bash
+dotnet add package Rugst
+```
+
+### Usage (C#)
+```csharp
+using Rugst;
+
+// Open or create a local memory store
+using var client = RugstClient.Open("memory.db");
+
+// Store a message
+client.Remember(
+    channelId: "general",
+    authorId: "user1",
+    role: "user",
+    content: "I'm learning about Rust and .NET bindings."
+);
+
+// Search memories
+var options = new RugstSearchOptions
+{
+    TopK = 5,
+    HalfLifeDays = 30f,
+    MinScore = 0.3f
+};
+
+var results = client.Search(
+    channelId: "general",
+    query: "What I am studying",
+    options: options
+);
+
+foreach (var hit in results)
+{
+    Console.WriteLine($"[{hit.Score:F4}] {hit.Text} (Unix: {hit.CreatedAtUnix})");
+}
+```
 
 ### Create
 
