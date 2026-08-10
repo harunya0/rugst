@@ -20,6 +20,7 @@ semantically similar memories with time-based decay.
 - Configurable search options
 - Fact management API (list / update / delete stored facts by id)
 - C-compatible FFI API
+- Prebuilt native libraries for Windows, Linux, and macOS
 - No external vector database required
 
 ## Architecture
@@ -169,6 +170,22 @@ in hybrid mode) with time decay.
 
 Older memories gradually become less relevant, while semantically similar
 recent memories receive a higher score.
+
+## Native libraries
+
+Rugst provides native libraries for use through its C-compatible FFI:
+
+- Windows: `.dll` / `.dll.lib`
+- Linux: `.so`
+- macOS: `.dylib`
+
+The C header required to use the FFI API is included with the native
+distribution.
+
+> **Platform compatibility:** The Windows native library is currently
+> tested on Windows. Linux (`.so`) and macOS (`.dylib`) artifacts are
+> currently provided as build outputs but have not been fully tested on
+> their respective platforms.
 
 ## C / FFI API
 
@@ -358,6 +375,7 @@ FastEmbed may download the embedding model when Rugst is initialized for
 the first time.
 
 An internet connection may therefore be required during the initial setup.
+After the model has been downloaded, embeddings are generated locally.
 
 ## License
 
