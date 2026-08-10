@@ -27,8 +27,14 @@ jobs:
         $VERSION = "${{ github.ref_name }}".TrimStart('v')
         dotnet pack dotnet/Rugst.NET/Rugst.NET.csproj -c Release -o ${{ github.workspace }}/output /p:PackageVersion=$VERSION
 
+    - name: NuGet Login
+      uses: NuGet/login@v1
+      id: nuget_login
+      with:
+        user: wakanaharu
+
     - name: Push to NuGet
       shell: pwsh
       run: |
         $NUPKG = (Get-Item ${{ github.workspace }}/output/*.nupkg).FullName
-        dotnet nuget push $NUPKG --source https://api.nuget.org/v3/index.json
+        dotnet nuget push $NUPKG --source https://api.nuget.org/v3/index.json --api-key ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
