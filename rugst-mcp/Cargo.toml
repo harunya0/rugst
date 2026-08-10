@@ -2,6 +2,16 @@
 name = "rugst-mcp"
 version = "0.1.0"
 edition = "2024"
+description = "MCP server for local semantic memory with Rugst, SQLite, and FastEmbed."
+license = "MIT"
+repository = "https://github.com/harunya0/rugst"
+readme = "README.md"
+include = [
+    "src/**/*",
+    "Cargo.toml",
+    "README.md",
+    "LICENSE"
+]
 
 [dependencies]
 rugst = { version = "0.2.7", path = ".." }
